@@ -1,0 +1,753 @@
+This file is a merged representation of a subset of the codebase, containing files not matching ignore patterns, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching these patterns are excluded: public/*, package-lock.json
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+app/
+  [[...slug]]/
+    page.tsx
+  error.tsx
+  favicon.ico
+  layout.tsx
+  loading.tsx
+components/
+  PageRenderer.tsx
+lib/
+  api.ts
+  styleExtractor.ts
+.gitignore
+next.config.ts
+package.json
+postcss.config.mjs
+README.md
+repomix.config.json
+tsconfig.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="lib/styleExtractor.ts">
+/**
+ * Represents a block configuration with optional styling and nested blocks
+ */
+export interface BlockConfig {
+  /** Unique identifier for the block */
+  id?: string;
+  
+  /** CSS content to be injected as a style tag */
+  styleTagContent?: string;
+  
+  /** Nested child blocks */
+  blocks?: BlockConfig[];
+  
+  /** Additional properties that may exist on a block */
+  [key: string]: unknown;
+}
+/**
+ * Extracts all unique styles from a block configuration tree
+ * @param config - The root block configuration
+ * @returns A Map of style IDs to style content
+ */
+export function extractStyles(config: BlockConfig | null | undefined): Map<string, string> {
+  const styles = new Map<string, string>();
+  
+  if (!config) return styles;
+  
+  const traverse = (block: BlockConfig) => {
+    // Extract style from current block
+    if (block.styleTagContent) {
+      const styleId = block.id 
+        ? `style-${block.id}` 
+        : `style-${hashCode(block.styleTagContent)}`;
+      
+      // Only add if not already present (deduplication)
+      if (!styles.has(styleId)) {
+        styles.set(styleId, block.styleTagContent);
+      }
+    }
+    
+    // Recursively traverse child blocks
+    if (block.blocks && Array.isArray(block.blocks)) {
+      block.blocks.forEach(childBlock => traverse(childBlock));
+    }
+  };
+  
+  traverse(config);
+  return styles;
+}
+
+/**
+ * Generates a simple hash code from a string
+ * @param str - The input string
+ * @returns A hash of the string
+ */
+function hashCode(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash).toString(36);
+}
+
+/**
+ * Converts a style Map to an array of style tag strings
+ * @param styles - Map of style IDs to content
+ * @returns Array of HTML style tag strings
+ */
+export function stylesToHtml(styles: Map<string, string>): string[] {
+  return Array.from(styles.entries()).map(([id, content]) => {
+    return `<style id="${id}">${content}</style>`;
+  });
+}
+
+/**
+ * Generates a complete style block for server-side rendering
+ * @param config - The block configuration
+ * @returns A single HTML string with all style tags
+ */
+export function generateStyleBlock(config: BlockConfig | null | undefined): string {
+  const styles = extractStyles(config);
+  return stylesToHtml(styles).join('\n');
+}
+</file>
+
+<file path="repomix.config.json">
+{
+  "output": {
+    "filePath": "repomix-output.xml",
+    "style": "xml"
+  },
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "public/*",
+      "package-lock.json"
+    ]
+  }
+}
+</file>
+
+<file path="app/[[...slug]]/page.tsx">
+import { notFound } from 'next/navigation';
+import type { Metadata } from 'next';
+import PageRenderer from '@/components/PageRenderer';
+import { getSiteByDomain, SiteData } from '@/lib/api';
+import { extractStyles } from '@/lib/styleExtractor';
+
+export const revalidate = 60; // Revalidate every 60 seconds
+
+interface PageParams {
+  params: {
+    slug?: string[];
+  };
+}
+
+interface PageData {
+  slug: string;
+  name?: string;
+  isHomepage?: boolean;
+  seo?: {
+    description?: string;
+    keywords?: string[];
+  };
+  config?: Record<string, any>;
+  [key: string]: any;
+}
+
+// --- Helper to get page data ---
+async function getPageData(slug: string) {
+  const site: SiteData = await getSiteByDomain(process.env.SITE_DOMAIN as string);
+  
+  if (!site) return null;
+  
+  const page = site.pages?.find(
+    (p: PageData) => p.slug === slug || (p.isHomepage && slug === '/')
+  );
+  
+  return { site, page };
+}
+
+// --- Generate static paths for SSG ---
+export async function generateStaticParams() {
+  try {
+    const site = await getSiteByDomain(process.env.SITE_DOMAIN as string);
+
+    if (!site?.pages) return [];
+
+    return site.pages.map((page: PageData) => ({
+      slug: page.slug === '/' ? [] : page.slug.split('/').filter(Boolean),
+    }));
+  } catch (error) {
+    console.error('Error generating static params:', error);
+    return [];
+  }
+}
+
+// --- Metadata generation for SEO and Styles ---
+export async function generateMetadata({ params }: { params: Promise<{ slug?: string[] }> }): Promise<Metadata> {
+  const resolvedParams = await params;
+  const slug = resolvedParams.slug ? `/${resolvedParams.slug.join('/')}` : '/';
+
+  try {
+    const data = await getPageData(slug);
+    
+    if (!data?.page || !data?.site) {
+      return {
+        title: 'Page Not Found',
+      };
+    }
+    
+    const { page, site } = data;
+    
+    // Extract all styles from the page config
+    const styles = extractStyles(page.config);
+    const styleStrings = Array.from(styles.entries()).map(([id, content]) => ({
+      id,
+      content,
+    }));
+
+    return {
+      title: page?.name ? `${page.name} - ${site.name}` : site.name,
+      description: page?.seo?.description || `${page?.name} - ${site.name}`,
+      keywords: page?.seo?.keywords?.join(', ') || '',
+      // Note: Next.js doesn't support injecting arbitrary HTML in metadata
+      // We'll handle styles in the page component instead
+      other: {
+        'x-page-styles': JSON.stringify(styleStrings), // Store for reference
+      },
+    };
+  } catch (error) {
+    return {
+      title: 'Page Not Found',
+    };
+  }
+}
+
+// --- Page Component ---
+export default async function Page({ params }: { params: Promise<{ slug?: string[] }> }) {
+  const resolvedParams = await params;
+  const slug = resolvedParams.slug ? `/${resolvedParams.slug.join('/')}` : '/';
+
+  try {
+    const data = await getPageData(slug);
+    
+    if (!data?.page || !data?.site) {
+      notFound();
+    }
+    
+    const { page, site } = data;
+
+    // Extract styles at build/render time
+    const styles = extractStyles(page.config);
+    
+    return (
+      <>
+        {/* Inject critical CSS styles in the document head via style tags */}
+        {Array.from(styles.entries()).map(([id, content]) => (
+          <style 
+            key={id} 
+            id={id}
+            // Suppress hydration warning since these are SSR-only
+            suppressHydrationWarning
+            dangerouslySetInnerHTML={{ __html: content }} 
+          />
+        ))}
+        
+        <PageRenderer page={page} site={site} />
+      </>
+    );
+  } catch (error) {
+    console.error('Error loading page:', error);
+    notFound();
+  }
+}
+</file>
+
+<file path="app/error.tsx">
+'use client';
+
+import React, { JSX } from 'react';
+
+interface ErrorProps {
+  error: Error & { digest?: string };
+  reset: () => void;
+}
+
+export default function Error({ error, reset }: ErrorProps): JSX.Element {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '100vh',
+        background: '#000',
+        color: '#fff',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        textAlign: 'center',
+        padding: '20px',
+      }}
+    >
+      <h2 style={{ fontSize: '24px', marginBottom: '16px' }}>
+        Something went wrong!
+      </h2>
+      <p style={{ color: '#999', marginBottom: '24px' }}>
+        {error.message}
+      </p>
+      <button
+        onClick={() => reset()}
+        style={{
+          padding: '12px 24px',
+          background: '#0071e3',
+          color: '#fff',
+          border: 'none',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          fontSize: '16px',
+        }}
+      >
+        Try again
+      </button>
+    </div>
+  );
+}
+</file>
+
+<file path="app/loading.tsx">
+import React, { JSX } from 'react';
+
+export default function Loading(): JSX.Element {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '100vh',
+        background: '#000',
+        color: '#fff',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+      }}
+    >
+      <div>Loading...</div>
+    </div>
+  );
+}
+</file>
+
+<file path="components/PageRenderer.tsx">
+'use client';
+
+import { useState } from 'react';
+import { Block } from '@cheryx2020/core';
+
+interface Page {
+  config: any;
+  [key: string]: any;
+}
+
+interface Site {
+  [key: string]: any;
+}
+
+interface PageRendererProps {
+  page: Page;
+  site: Site;
+}
+
+interface ContextType {
+  state: Record<string, any>;
+  setState: (key: string, value: any) => void;
+  toggleState: (key: string) => void;
+  site: Site;
+  page: Page;
+}
+
+export default function PageRenderer({ page, site }: PageRendererProps) {
+  const [state, setState] = useState<Record<string, any>>({});
+
+  const context: ContextType = {
+    state,
+    setState: (key, value) => {
+      setState(prev => ({ ...prev, [key]: value }));
+    },
+    toggleState: (key) => {
+      setState(prev => ({ ...prev, [key]: !prev[key] }));
+    },
+    site,
+    page,
+  };
+
+  return <Block config={page.config} context={context} />;
+}
+</file>
+
+<file path="lib/api.ts">
+export interface SiteData {
+  id: string;
+  domain: string;
+  name?: string;
+  config?: Record<string, any>;
+  [key: string]: any;
+}
+
+export async function getSiteByDomain(domain: string): Promise<SiteData> {
+  const apiUrl = process.env.API_URL;
+  const token = process.env.API_TOKEN;
+
+  if (!token) {
+    throw new Error('API_TOKEN environment variable is not set');
+  }
+
+  try {
+    const response = await fetch(`${apiUrl}/${domain}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      next: { revalidate: 60 }, // Revalidate every 60 seconds
+    });
+
+    if (!response.ok) {
+      throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const result: {
+      success: boolean;
+      data?: SiteData;
+      [key: string]: any;
+    } = await response.json();
+
+    if (!result.success || !result.data) {
+      throw new Error('Invalid API response format');
+    }
+
+    return result.data;
+  } catch (error) {
+    console.error('Error fetching site data:', error);
+    throw error;
+  }
+}
+</file>
+
+<file path=".gitignore">
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+</file>
+
+<file path="next.config.ts">
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
+};
+
+export default nextConfig;
+</file>
+
+<file path="postcss.config.mjs">
+const config = {
+  plugins: {
+    "@tailwindcss/postcss": {},
+  },
+};
+
+export default config;
+</file>
+
+<file path="tsconfig.json">
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+</file>
+
+<file path="app/layout.tsx">
+import type { Metadata } from 'next';
+import React from 'react';
+
+export const metadata: Metadata = {
+  title: 'Block Website',
+  description: 'Built with Next.js and @cheryx2020/core',
+};
+
+interface RootLayoutProps {
+  children: React.ReactNode;
+}
+
+export default function RootLayout({ children }: RootLayoutProps) {
+  return (
+    <html lang="en">
+      <head>
+        {/* Page-specific styles will be injected here by generateMetadata */}
+      </head>
+      <body>{children}</body>
+    </html>
+  );
+}
+</file>
+
+<file path="package.json">
+{
+  "name": "site-renderer",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
+    "start": "next start",
+    "repomix": "repomix --config repomix.config.json"
+  },
+  "dependencies": {
+    "@cheryx2020/core": "^1.3.4",
+    "next": "16.0.1",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20.19.25",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "repomix": "^1.9.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+</file>
+
+<file path="README.md">
+# Site Renderer
+
+[![Built with Next.js](https://img.shields.io/badge/Built%20with-Next.js-black?style=for-the-badge&logo=next.js)](https://nextjs.org)
+
+A dynamic Next.js application designed to fetch and render websites from a headless API. It uses a block-based rendering system powered by `@cheryx2020/core` to construct pages on the fly based on a given domain.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Getting Started](#getting-started)
+  - [Installation](#installation)
+  - [Environment Variables](#environment-variables)
+- [Available Scripts](#available-scripts)
+- [Project Structure](#project-structure)
+- [Deployment](#deployment)
+
+## Overview
+
+This project serves as a universal frontend renderer for websites managed by an external, headless system. Instead of hardcoding pages, it dynamically fetches site and page data from an API at build time and runtime.
+
+The core logic is built around a single dynamic route that captures all URL paths. It then queries a backend API for the configuration of a specific site (identified by a domain) and renders the corresponding page using a flexible block-based component system.
+
+## Features
+
+- **Dynamic Routing**: A single `app/[[...slug]]/page.tsx` route handles all pages, including the homepage.
+- **Headless Architecture**: Decouples the frontend from the backend, fetching all content from an API.
+- **Block-Based Content**: Renders complex page layouts from a JSON configuration using the `@cheryx2020/core` library.
+- **Server-Side Rendering & ISR**: Utilizes Next.js App Router with Server Components and Incremental Static Regeneration (`revalidate = 60`) for optimal performance and fresh content.
+- **Dynamic Metadata**: SEO tags (title, description, keywords) are generated dynamically for each page based on fetched data.
+- **Centralized Data Fetching**: All API communication is handled cleanly within `lib/api.ts`.
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+- [Node.js](https://nodejs.org/) (v20.x or later recommended)
+- [npm](https://www.npmjs.com/), [yarn](https://yarnpkg.com/), or [pnpm](https://pnpm.io/)
+- Access to the backend API credentials.
+
+## Getting Started
+
+Follow these steps to set up and run the project locally.
+
+### Installation
+
+1.  **Clone the repository:**
+    ```bash
+    git clone <your-repository-url>
+    cd site-renderer
+    ```
+
+2.  **Install dependencies:**
+    ```bash
+    npm install
+    # or
+    yarn install
+    # or
+    pnpm install
+    ```
+
+### Environment Variables
+
+This project requires environment variables to connect to the API. Create a `.env.local` file in the root of the project and add the following variables.
+
+```sh
+# .env.local
+
+# The base URL of the backend API that serves the site data
+API_URL=https://api.example.com/sites
+
+# The authentication token for accessing the API
+API_TOKEN=your_secret_api_token_here
+
+# The domain of the specific site you want to render locally
+SITE_DOMAIN=local.example.com
+```
+
+**Note:** The application is designed to render one site per instance, configured by the `SITE_DOMAIN` variable.
+
+## Available Scripts
+
+You can run the following commands from the project root:
+
+- **`npm run dev`**: Starts the application in development mode on `http://localhost:3000`. The page will auto-update as you edit files.
+
+- **`npm run build`**: Creates an optimized production build of the application.
+
+- **`npm run start`**: Starts the production server. This command should be run after building the project with `npm run build`.
+
+## Project Structure
+
+Here is an overview of the key files and directories in the project:
+
+```
+site-renderer/
+├── app/
+│   ├── [[...slug]]/
+│   │   └── page.tsx      # Core file: Handles dynamic routing, data fetching, and page rendering.
+│   ├── layout.tsx        # Root layout for the application.
+│   ├── error.tsx         # Custom error page.
+│   └── loading.tsx       # Custom loading UI.
+├── components/
+│   └── PageRenderer.tsx  # Renders the page using @cheryx2020/core based on API config.
+├── lib/
+│   └── api.ts            # Contains all logic for fetching site data from the external API.
+├── public/               # Static assets.
+├── .env.local            # (You create this) Environment variables.
+├── next.config.ts        # Next.js configuration.
+└── package.json          # Project dependencies and scripts.
+```
+
+## Deployment
+
+The easiest way to deploy this Next.js application is to use the [Vercel Platform](https://vercel.com/new), from the creators of Next.js.
+
+When deploying, make sure to set the `API_URL`, `API_TOKEN`, and `SITE_DOMAIN` environment variables in your Vercel project settings.
+
+For more details on deployment, check out the official [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying).
+</file>
+
+</files>
